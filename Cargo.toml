@@ -8,7 +8,8 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-goblin = { version = "0.5", default-features = false, features = ["std", "elf32", "elf64", "endian_fd"] }
 libc = "0.2"
-plain = "0.2"
-redox_syscall = "0.2"
+redox-daemon = { git = "https://gitlab.redox-os.org/redox-os/redox-daemon.git" }
+#redox_syscall = "0.2"
+redox_syscall = { git = "https://gitlab.redox-os.org/4lDO2/syscall.git", branch = "userspace_fexec" }
+redox-exec = { path = "../../../../relibc/src/platform/redox/redox-exec" }

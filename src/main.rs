@@ -1,3 +1,6 @@
+// Not bad to have a memory-safe setuid/setgid implementation!
+#![forbid(unsafe_code)]
+
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, ErrorKind, prelude::*, SeekFrom};

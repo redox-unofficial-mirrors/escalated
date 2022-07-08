@@ -1,6 +1,6 @@
 [package]
 name = "escalated"
-author = "4lDO2 <4lDO2@protonmail.com>"
+authors = ["4lDO2 <4lDO2@protonmail.com>"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"

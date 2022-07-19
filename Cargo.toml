@@ -9,7 +9,7 @@ license = "MIT"
 
 [dependencies]
 libc = "0.2"
-redox-daemon = { git = "https://gitlab.redox-os.org/redox-os/redox-daemon.git" }
+redox-daemon = "0.1"
 #redox_syscall = "0.2"
 redox_syscall = { git = "https://gitlab.redox-os.org/4lDO2/syscall.git", branch = "userspace_fexec" }
-redox-exec = { path = "../../../../relibc/src/platform/redox/redox-exec" }
+redox-exec = { git = "https://gitlab.redox-os.org/4lDO2/relibc.git", branch = "userspace_fexec" }

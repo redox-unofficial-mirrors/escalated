@@ -11,10 +11,12 @@ use syscall::flag::*;
 use syscall::number::*;
 use syscall::scheme::SchemeMut;
 
-#[derive(Default)]
+use redox_exec::FdGuard;
+
 struct Scheme {
     next_fd: usize,
     handles: HashMap<usize, Handle>,
+    memory: FdGuard,
 }
 enum Handle {
     AwaitingPath { pid: usize },
@@ -43,7 +45,7 @@ impl SchemeMut for Scheme {
     }
     fn close(&mut self, id: usize) -> Result<usize> {
         if let Handle::Finished { pid, path, args, envs } = self.handles.remove(&id).ok_or(Error::new(EBADF))? {
-            execute(pid, &path, &args, &envs)?;
+            execute(&self.memory, pid, &path, &args, &envs)?;
         }
         Ok(0)
     }
@@ -61,9 +63,7 @@ impl Scheme {
         Ok(fd)
     }
 }
-fn execute(pid: usize, path: &str, args: &[u8], envs: &[u8]) -> Result<()> {
-    use redox_exec::FdGuard;
-
+fn execute(memory: &FdGuard, pid: usize, path: &str, args: &[u8], envs: &[u8]) -> Result<()> {
     let image_file = FdGuard::new(syscall::open(path, O_RDONLY | O_CLOEXEC)?);
     let open_via_dup = FdGuard::new(syscall::open(&format!("proc:{}/open_via_dup", pid), O_CLOEXEC)?);
 
@@ -94,10 +94,12 @@ fn execute(pid: usize, path: &str, args: &[u8], envs: &[u8]) -> Result<()> {
     let address_space_fd = redox_exec::fexec_impl(
         image_file,
         open_via_dup,
+        memory,
         path.as_bytes(),
         args.rsplit(|c| *c == b'\0').filter(|a| !a.is_empty()),
         envs.rsplit(|c| *c == b'\0').filter(|a| !a.is_empty()),
         args.len() + envs.len(),
+        None,
     )?;
 
     if let Some(setuid) = setuid {
@@ -117,12 +119,17 @@ fn execute(pid: usize, path: &str, args: &[u8], envs: &[u8]) -> Result<()> {
 
 fn main() {
     redox_daemon::Daemon::new(move |daemon| {
+        let memory = FdGuard::new(syscall::open("memory:", O_CLOEXEC).expect("failed to open `memory:`"));
         // TODO: Linux kernel audit-like logging?
         let mut socket = File::create(":escalate").expect("failed to open scheme socket");
         daemon.ready().expect("failed to signal escalate scheme readiness");
 
         let mut packet = Packet::default();
-        let mut scheme = Scheme::default();
+        let mut scheme = Scheme {
+            next_fd: 1,
+            handles: HashMap::new(),
+            memory,
+        };
 
         'outer: loop {
             loop {

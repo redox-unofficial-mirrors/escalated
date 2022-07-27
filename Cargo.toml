@@ -10,6 +10,5 @@ license = "MIT"
 [dependencies]
 libc = "0.2"
 redox-daemon = "0.1"
-#redox_syscall = "0.2"
-redox_syscall = { git = "https://gitlab.redox-os.org/4lDO2/syscall.git", branch = "userspace_fexec" }
-redox-exec = { git = "https://gitlab.redox-os.org/4lDO2/relibc.git", branch = "userspace_fexec" }
+redox_syscall = "0.3"
+redox-exec = { git = "https://gitlab.redox-os.org/redox-os/relibc.git" }

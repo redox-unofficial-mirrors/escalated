@@ -102,7 +102,7 @@ fn execute(memory: &FdGuard, pid: usize, path: &str, args: &[u8], envs: &[u8], c
         path.as_bytes(),
         args.rsplit(|c| *c == b'\0').filter(|a| !a.is_empty()),
         envs.rsplit(|c| *c == b'\0').filter(|a| !a.is_empty()),
-        args.len() + envs.len(),
+        args.len() + envs.len() + cwd.len() + 1,
         &redox_exec::ExtraInfo {
             cwd: Some(cwd.as_bytes()),
         },

@@ -11,4 +11,5 @@ license = "MIT"
 libc = "0.2"
 redox-daemon = "0.1"
 redox_syscall = "0.3"
-redox-exec = { git = "https://gitlab.redox-os.org/redox-os/relibc.git" }
+#redox-exec = { git = "https://gitlab.redox-os.org/redox-os/relibc.git" }
+redox-exec = { git = "https://gitlab.redox-os.org/4lDO2/relibc.git", branch = "relibc_cwd" }

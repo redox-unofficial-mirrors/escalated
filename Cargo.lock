@@ -37,9 +37,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.126"
+version = "0.2.131"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "349d5a591cd28b49e1d1037471617a32ddcda5731b99419008085f72d5a53836"
+checksum = "04c3b4822ccebfa39c02fc03d1534441b22ead323fa0f48bb7ddd8e6ba076a40"
 
 [[package]]
 name = "log"
@@ -87,7 +87,7 @@ dependencies = [
 [[package]]
 name = "redox-exec"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#9e2cbcc40705cd35578fb0a1c020d7e02016c867"
+source = "git+https://gitlab.redox-os.org/4lDO2/relibc.git?branch=relibc_cwd#bc8a6d2cc4d2ed4cffdfc1e4797566605c5e54ea"
 dependencies = [
  "goblin",
  "plain",

@@ -22,7 +22,8 @@ enum Handle {
     AwaitingPath { pid: usize },
     AwaitingArgs { pid: usize, path: Box<str> },
     AwaitingEnvs { pid: usize, path: Box<str>, args: Box<[u8]> },
-    Finished { pid: usize, path: Box<str>, args: Box<[u8]>, envs: Box<[u8]> },
+    AwaitingCwd { pid: usize, path: Box<str>, args: Box<[u8]>, envs: Box<[u8]> },
+    Finished { pid: usize, path: Box<str>, args: Box<[u8]>, envs: Box<[u8]>, cwd: Box<str> },
     Placeholder,
 }
 
@@ -33,10 +34,13 @@ impl SchemeMut for Scheme {
     fn write(&mut self, id: usize, buf: &[u8]) -> Result<usize> {
         let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
 
+        let validate_utf8 = |buf| std::str::from_utf8(buf).map_err(|_| Error::new(EINVAL));
+
         match std::mem::replace(handle, Handle::Placeholder) {
-            Handle::AwaitingPath { pid } => *handle = Handle::AwaitingArgs { pid, path: std::str::from_utf8(buf).map_err(|_| Error::new(EINVAL))?.into() },
+            Handle::AwaitingPath { pid } => *handle = Handle::AwaitingArgs { pid, path: validate_utf8(buf)?.into() },
             Handle::AwaitingArgs { pid, path } => *handle = Handle::AwaitingEnvs { pid, path, args: buf.into() },
-            Handle::AwaitingEnvs { pid, path, args } => *handle = Handle::Finished { pid, path, args, envs: buf.into() },
+            Handle::AwaitingEnvs { pid, path, args } => *handle = Handle::AwaitingCwd { pid, path, args, envs: buf.into() },
+            Handle::AwaitingCwd { pid, path, args, envs } => *handle = Handle::Finished { pid, path, args, envs, cwd: validate_utf8(buf)?.into() },
             Handle::Finished { .. } => return Ok(0),
 
             Handle::Placeholder => unreachable!(),
@@ -44,8 +48,8 @@ impl SchemeMut for Scheme {
         Ok(buf.len())
     }
     fn close(&mut self, id: usize) -> Result<usize> {
-        if let Handle::Finished { pid, path, args, envs } = self.handles.remove(&id).ok_or(Error::new(EBADF))? {
-            execute(&self.memory, pid, &path, &args, &envs)?;
+        if let Handle::Finished { pid, path, args, envs, cwd } = self.handles.remove(&id).ok_or(Error::new(EBADF))? {
+            execute(&self.memory, pid, &path, &args, &envs, &cwd)?;
         }
         Ok(0)
     }
@@ -63,7 +67,7 @@ impl Scheme {
         Ok(fd)
     }
 }
-fn execute(memory: &FdGuard, pid: usize, path: &str, args: &[u8], envs: &[u8]) -> Result<()> {
+fn execute(memory: &FdGuard, pid: usize, path: &str, args: &[u8], envs: &[u8], cwd: &str) -> Result<()> {
     let image_file = FdGuard::new(syscall::open(path, O_RDONLY | O_CLOEXEC)?);
     let open_via_dup = FdGuard::new(syscall::open(&format!("proc:{}/open_via_dup", pid), O_CLOEXEC)?);
 
@@ -98,7 +102,10 @@ fn execute(memory: &FdGuard, pid: usize, path: &str, args: &[u8], envs: &[u8]) -
         path.as_bytes(),
         args.rsplit(|c| *c == b'\0').filter(|a| !a.is_empty()),
         envs.rsplit(|c| *c == b'\0').filter(|a| !a.is_empty()),
-        args.len() + envs.len(),
+        args.len() + envs.len() + cwd.len() + 1,
+        &redox_exec::ExtraInfo {
+            cwd: Some(cwd.as_bytes()),
+        },
         None,
     )?;
 

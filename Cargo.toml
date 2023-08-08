@@ -10,5 +10,8 @@ license = "MIT"
 [dependencies]
 libc = "0.2"
 redox-daemon = "0.1"
-redox_syscall = "0.3.1"
+redox_syscall = "0.3"
 redox-exec = { git = "https://gitlab.redox-os.org/redox-os/relibc.git" }
+
+[patch.crates-io]
+redox_syscall = { git = "https://gitlab.redox-os.org/redox-os/syscall.git" }

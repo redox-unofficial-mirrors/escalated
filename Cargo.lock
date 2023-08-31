@@ -15,7 +15,7 @@ dependencies = [
  "libc",
  "redox-daemon",
  "redox-exec",
- "redox_syscall 0.3.5",
+ "redox_syscall",
 ]
 
 [[package]]
@@ -37,9 +37,9 @@ checksum = "b4668fb0ea861c1df094127ac5f1da3409a82116a4ba74fca2e58ef927159bb3"
 
 [[package]]
 name = "log"
-version = "0.4.19"
+version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b06a4cde4c0f271a446782e3eff8de789548ce57dbc8eca9292c27f4a42004b4"
+checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 
 [[package]]
 name = "plain"
@@ -67,31 +67,22 @@ dependencies = [
 
 [[package]]
 name = "redox-daemon"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21e31c834277709c7ff3eb74959fe62be4b45b1189ba9d41fd3744cd3a9c554f"
+checksum = "811fd0d382a70c9e9192166ee794567b65ef34cc7309c86a49b071779ca9b5f3"
 dependencies = [
  "libc",
- "redox_syscall 0.2.16",
+ "redox_syscall",
 ]
 
 [[package]]
 name = "redox-exec"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#3327bc820dc089d28b855e902ae058119d5a9c80"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#3359d4a0406417ab6695cd6b622bb49124c7d8b5"
 dependencies = [
  "goblin",
  "plain",
- "redox_syscall 0.3.5",
-]
-
-[[package]]
-name = "redox_syscall"
-version = "0.2.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
-dependencies = [
- "bitflags",
+ "redox_syscall",
 ]
 
 [[package]]

@@ -78,7 +78,7 @@ dependencies = [
 [[package]]
 name = "redox-exec"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#2c7ec0dc8eec7307cfcb5d4aa9ddf332b7132a83"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#76242fc7bc73fb9052cd83febdd93fc896d2018a"
 dependencies = [
  "goblin",
  "plain",
@@ -97,7 +97,7 @@ dependencies = [
 [[package]]
 name = "redox_syscall"
 version = "0.4.1"
-source = "git+https://gitlab.redox-os.org/4lDO2/syscall.git?branch=sendfd#bbbf2a97c55ea9d4a5b5d0c465f1871df745eb82"
+source = "git+https://gitlab.redox-os.org/redox-os/syscall.git#06d569933f24af0c72b8bb2eb1aaa031113843fd"
 dependencies = [
  "bitflags",
 ]

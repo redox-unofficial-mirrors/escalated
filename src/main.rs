@@ -337,6 +337,7 @@ fn execute(
             default_scheme: Some(default_scheme.as_bytes()),
             sigignmask: 0,
             sigprocmask: 0,
+            umask: redox_rt::sys::get_umask(),
         },
         None,
     )?;

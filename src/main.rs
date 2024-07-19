@@ -15,7 +15,7 @@ use syscall::flag::*;
 use syscall::number::*;
 use syscall::scheme::SchemeMut;
 
-use redox_exec::FdGuard;
+use redox_rt::proc::FdGuard;
 
 struct MemoryFd(FdGuard);
 struct ExecFd(FdGuard);
@@ -88,11 +88,7 @@ impl SchemeMut for Scheme {
                     path: validate_utf8(buf)?.into(),
                 }
             }
-            Handle::AwaitingArgs {
-                exec,
-                ctx,
-                path,
-            } => {
+            Handle::AwaitingArgs { exec, ctx, path } => {
                 *handle = Handle::AwaitingEnvs {
                     exec,
                     ctx,
@@ -199,8 +195,12 @@ impl Scheme {
                     }
                     assert!(path.starts_with(b"proc:"));
                     let path = &path[5..];
-                    let slash = path.iter().position(|c| *c == b'/').expect("malformed kernel proc: fpath");
-                    let pid_str = core::str::from_utf8(&path[..slash]).expect("non-UTF8 kernel proc: fpath");
+                    let slash = path
+                        .iter()
+                        .position(|c| *c == b'/')
+                        .expect("malformed kernel proc: fpath");
+                    let pid_str =
+                        core::str::from_utf8(&path[..slash]).expect("non-UTF8 kernel proc: fpath");
 
                     pid_str.parse().expect("invalid kernel proc: fpath pid")
                 };
@@ -208,9 +208,7 @@ impl Scheme {
                     return Err(Error::new(EACCES));
                 }
 
-                *handle = Handle::AwaitingExecFd {
-                    ctx: ContextFd(fd),
-                }
+                *handle = Handle::AwaitingExecFd { ctx: ContextFd(fd) }
             }
             Handle::AwaitingExecFd { ctx } => {
                 let fd = unsafe { fobtainfd(socket, packet_id) };
@@ -281,14 +279,14 @@ fn execute(
         return Err(Error::new(EACCES));
     }
 
-    let setuid = setuid.map(|new_uid| {
-        Ok((new_uid, FdGuard::new(syscall::dup(*context_file, b"uid")?)))
-    }).transpose()?;
-    let setgid = setgid.map(|new_gid| {
-        Ok((new_gid, FdGuard::new(syscall::dup(*context_file, b"gid")?)))
-    }).transpose()?;
+    let setuid = setuid
+        .map(|new_uid| Ok((new_uid, FdGuard::new(syscall::dup(*context_file, b"uid")?))))
+        .transpose()?;
+    let setgid = setgid
+        .map(|new_gid| Ok((new_gid, FdGuard::new(syscall::dup(*context_file, b"gid")?))))
+        .transpose()?;
 
-    let address_space_fd = redox_exec::fexec_impl(
+    let address_space_fd = redox_rt::proc::fexec_impl(
         exec_file,
         context_file,
         memory,
@@ -296,8 +294,10 @@ fn execute(
         args.rsplit(|c| *c == b'\0').filter(|a| !a.is_empty()),
         envs.rsplit(|c| *c == b'\0').filter(|a| !a.is_empty()),
         args.len() + envs.len() + cwd.len() + 1,
-        &redox_exec::ExtraInfo {
+        &redox_rt::proc::ExtraInfo {
             cwd: Some(cwd.as_bytes()),
+            sigignmask: 0,
+            sigprocmask: 0,
         },
         None,
     )?;
@@ -308,10 +308,12 @@ fn execute(
     drop(address_space_fd);
 
     if let Some((new_uid, context_uid_fd)) = setuid {
-        let _ = syscall::write(*context_uid_fd, new_uid.to_string().as_bytes()).map_err(|_| Error::new(EIO))?;
+        let _ = syscall::write(*context_uid_fd, new_uid.to_string().as_bytes())
+            .map_err(|_| Error::new(EIO))?;
     }
     if let Some((new_gid, context_gid_fd)) = setgid {
-        let _ = syscall::write(*context_gid_fd, new_gid.to_string().as_bytes()).map_err(|_| Error::new(EIO))?;
+        let _ = syscall::write(*context_gid_fd, new_gid.to_string().as_bytes())
+            .map_err(|_| Error::new(EIO))?;
     }
 
     // TODO: SIGKILL the process if anything here fails after the process's memory has started to

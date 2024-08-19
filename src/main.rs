@@ -325,7 +325,7 @@ fn execute(
 fn main() {
     redox_daemon::Daemon::new(move |daemon| {
         let memory = MemoryFd(FdGuard::new(
-            syscall::open("memory:", O_CLOEXEC).expect("failed to open `memory:`"),
+            syscall::open("/scheme/memory", O_CLOEXEC).expect("failed to open `memory:`"),
         ));
         // TODO: Linux kernel audit-like logging?
         let mut socket = File::create(":escalate").expect("failed to open scheme socket");

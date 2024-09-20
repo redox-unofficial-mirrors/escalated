@@ -55,6 +55,14 @@ enum Handle {
         args: Box<[u8]>,
         envs: Box<[u8]>,
     },
+    AwaitingDefaultScheme {
+        exec: ExecFd,
+        ctx: ContextFd,
+        path: Box<str>,
+        args: Box<[u8]>,
+        envs: Box<[u8]>,
+        cwd: Box<str>,
+    },
     // TODO: Make cwd an fd too?
     Finished {
         exec: ExecFd,
@@ -63,6 +71,7 @@ enum Handle {
         args: Box<[u8]>,
         envs: Box<[u8]>,
         cwd: Box<str>,
+        default_scheme: Box<str>,
     },
     Placeholder,
 }
@@ -117,13 +126,31 @@ impl SchemeMut for Scheme {
                 args,
                 envs,
             } => {
-                *handle = Handle::Finished {
+                *handle = Handle::AwaitingDefaultScheme {
                     exec,
                     ctx,
                     path,
                     args,
                     envs,
                     cwd: validate_utf8(buf)?.into(),
+                }
+            }
+            Handle::AwaitingDefaultScheme {
+                exec,
+                ctx,
+                path,
+                args,
+                envs,
+                cwd,
+            } => {
+                *handle = Handle::Finished {
+                    exec,
+                    ctx,
+                    path,
+                    args,
+                    envs,
+                    cwd,
+                    default_scheme: validate_utf8(buf)?.into(),
                 }
             }
             Handle::Finished { .. } => return Ok(0),
@@ -143,9 +170,19 @@ impl SchemeMut for Scheme {
             args,
             envs,
             cwd,
+            default_scheme,
         } = self.handles.remove(&id).ok_or(Error::new(EBADF))?
         {
-            execute(&self.memory, ctx, exec, &path, &args, &envs, &cwd)?;
+            execute(
+                &self.memory,
+                ctx,
+                exec,
+                &path,
+                &args,
+                &envs,
+                &cwd,
+                &default_scheme,
+            )?;
         }
         Ok(0)
     }
@@ -254,6 +291,7 @@ fn execute(
     args: &[u8],
     envs: &[u8],
     cwd: &str,
+    default_scheme: &str,
 ) -> Result<()> {
     let (setuid, setgid) = {
         let mut stat = syscall::Stat::default();
@@ -296,6 +334,7 @@ fn execute(
         args.len() + envs.len() + cwd.len() + 1,
         &redox_rt::proc::ExtraInfo {
             cwd: Some(cwd.as_bytes()),
+            default_scheme: Some(default_scheme.as_bytes()),
             sigignmask: 0,
             sigprocmask: 0,
         },

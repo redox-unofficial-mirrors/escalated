@@ -21,7 +21,7 @@ dependencies = [
 [[package]]
 name = "generic-rt"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#bf26de70e2377a34d0d95eeaa74188eddd7b807e"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc#1e97bae11b1a51a1589bb6ea44cf8e507d2d1275"
 
 [[package]]
 name = "goblin"
@@ -93,7 +93,7 @@ dependencies = [
 [[package]]
 name = "redox-rt"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#bf26de70e2377a34d0d95eeaa74188eddd7b807e"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc#1e97bae11b1a51a1589bb6ea44cf8e507d2d1275"
 dependencies = [
  "bitflags",
  "generic-rt",

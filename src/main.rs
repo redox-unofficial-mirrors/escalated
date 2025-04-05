@@ -5,9 +5,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{prelude::*, ErrorKind};
-use std::mem::MaybeUninit;
 
 use redox_scheme::scheme::SchemeSync;
 use redox_scheme::{
@@ -15,7 +12,6 @@ use redox_scheme::{
 };
 use syscall::error::*;
 use syscall::flag::*;
-use syscall::number::*;
 
 use redox_rt::proc::FdGuard;
 use syscall::schemev2::NewFdFlags;
@@ -94,6 +90,34 @@ impl SchemeSync for Scheme {
             number: fd,
             flags: NewFdFlags::empty(),
         })
+    }
+    fn call(&mut self, id: usize, _payload: &mut [u8], _metadata: &[u64]) -> Result<usize> {
+        let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
+
+        let Handle::Finished {
+            exec,
+            ctx,
+            path,
+            args,
+            envs,
+            cwd,
+            default_scheme,
+        } = std::mem::replace(handle, Handle::Placeholder)
+        else {
+            return Err(Error::new(EBADF));
+        };
+        execute(
+            &self.memory,
+            ctx,
+            exec,
+            &path,
+            &args,
+            &envs,
+            &cwd,
+            &default_scheme,
+        )?;
+
+        Ok(0)
     }
     fn write(
         &mut self,
@@ -192,29 +216,8 @@ impl Scheme {
             return;
         };
 
-        let Handle::Finished {
-            exec,
-            ctx,
-            path,
-            args,
-            envs,
-            cwd,
-            default_scheme,
-        } = handle
-        else {
+        let Handle::Placeholder = handle else {
             return;
-        };
-        if let Err(err) = execute(
-            &self.memory,
-            ctx,
-            exec,
-            &path,
-            &args,
-            &envs,
-            &cwd,
-            &default_scheme,
-        ) {
-            eprintln!("failed to escalated-execute process: {err}");
         };
     }
     fn on_sendfd(&mut self, socket: &Socket, req: &SendFdRequest) -> Result<usize> {
@@ -222,7 +225,7 @@ impl Scheme {
         match std::mem::replace(handle, Handle::Placeholder) {
             Handle::AwaitingContextFd { pid } => {
                 let fd = FdGuard::new({
-                    let mut fd = 0;
+                    let mut fd = usize::MAX;
                     req.obtain_fd(socket, FobtainFdFlags::empty(), Err(&mut fd))?;
                     fd
                 });
@@ -263,7 +266,7 @@ impl Scheme {
             }
             Handle::AwaitingExecFd { ctx } => {
                 let fd = FdGuard::new({
-                    let mut fd = 0;
+                    let mut fd = usize::MAX;
                     req.obtain_fd(socket, FobtainFdFlags::empty(), Err(&mut fd))?;
                     fd
                 });
@@ -371,7 +374,7 @@ fn main() {
             syscall::open("/scheme/memory", O_CLOEXEC).expect("failed to open `memory:`"),
         ));
         // TODO: Linux kernel audit-like logging?
-        let mut socket = Socket::create("escalate").expect("failed to open scheme socket");
+        let socket = Socket::create("escalate").expect("failed to open scheme socket");
 
         let mut scheme = Scheme {
             next_fd: 1,

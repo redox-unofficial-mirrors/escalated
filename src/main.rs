@@ -1,11 +1,13 @@
 // TODO: Move file descriptor number allocation to relibc, eliminating SYS_WRITE unsafety (for
-// SKMSG_FOBTAINFD).
+// CqeOpcode::ObtainFd).
 //
 //#![forbid(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use std::collections::HashMap;
 
+use redox_rt::protocol::{ProcCall, ProcMeta};
+use redox_rt::sys::proc_call;
 use redox_scheme::scheme::SchemeSync;
 use redox_scheme::{
     CallerCtx, OpenResult, RequestKind, Response, SendFdRequest, SignalBehavior, Socket,
@@ -18,7 +20,17 @@ use syscall::schemev2::NewFdFlags;
 
 struct MemoryFd(FdGuard);
 struct ExecFd(FdGuard);
-struct ContextFd(FdGuard);
+
+#[derive(Debug)]
+struct ProcFd {
+    fd: FdGuard,
+    fileno: usize,
+}
+#[derive(Debug)]
+struct ThrFd {
+    fd: FdGuard,
+    fileno: usize,
+}
 
 struct Scheme {
     next_fd: usize,
@@ -26,37 +38,46 @@ struct Scheme {
     memory: MemoryFd,
 }
 enum Handle {
-    AwaitingContextFd {
+    AwaitingProcFd {
         pid: usize,
     },
+    AwaitingThrFd {
+        proc_fd: ProcFd,
+    },
     AwaitingExecFd {
-        ctx: ContextFd,
+        proc_fd: ProcFd,
+        thr_fd: ThrFd,
     },
     AwaitingPath {
+        proc_fd: ProcFd,
+        thr_fd: ThrFd,
         exec: ExecFd,
-        ctx: ContextFd,
     },
     AwaitingArgs {
+        proc_fd: ProcFd,
+        thr_fd: ThrFd,
         exec: ExecFd,
-        ctx: ContextFd,
         path: Box<str>,
     },
     AwaitingEnvs {
         exec: ExecFd,
-        ctx: ContextFd,
+        proc_fd: ProcFd,
+        thr_fd: ThrFd,
         path: Box<str>,
         args: Box<[u8]>,
     },
     AwaitingCwd {
         exec: ExecFd,
-        ctx: ContextFd,
+        proc_fd: ProcFd,
+        thr_fd: ThrFd,
         path: Box<str>,
         args: Box<[u8]>,
         envs: Box<[u8]>,
     },
     AwaitingDefaultScheme {
         exec: ExecFd,
-        ctx: ContextFd,
+        proc_fd: ProcFd,
+        thr_fd: ThrFd,
         path: Box<str>,
         args: Box<[u8]>,
         envs: Box<[u8]>,
@@ -65,7 +86,8 @@ enum Handle {
     // TODO: Make cwd an fd too?
     Finished {
         exec: ExecFd,
-        ctx: ContextFd,
+        proc_fd: ProcFd,
+        thr_fd: ThrFd,
         path: Box<str>,
         args: Box<[u8]>,
         envs: Box<[u8]>,
@@ -84,7 +106,7 @@ impl SchemeSync for Scheme {
         let fd = self.next_fd;
         self.next_fd = self.next_fd.checked_add(1).ok_or(Error::new(EMFILE))?;
         self.handles
-            .insert(fd, Handle::AwaitingContextFd { pid: ctx.pid });
+            .insert(fd, Handle::AwaitingProcFd { pid: ctx.pid });
 
         Ok(OpenResult::ThisScheme {
             number: fd,
@@ -96,7 +118,8 @@ impl SchemeSync for Scheme {
 
         let Handle::Finished {
             exec,
-            ctx,
+            proc_fd,
+            thr_fd,
             path,
             args,
             envs,
@@ -108,7 +131,8 @@ impl SchemeSync for Scheme {
         };
         execute(
             &self.memory,
-            ctx,
+            proc_fd,
+            thr_fd,
             exec,
             &path,
             &args,
@@ -132,34 +156,49 @@ impl SchemeSync for Scheme {
         let validate_utf8 = |buf| std::str::from_utf8(buf).map_err(|_| Error::new(EINVAL));
 
         match std::mem::replace(handle, Handle::Placeholder) {
-            old @ (Handle::AwaitingExecFd { .. } | Handle::AwaitingContextFd { .. }) => {
+            old @ (Handle::AwaitingExecFd { .. }
+            | Handle::AwaitingProcFd { .. }
+            | Handle::AwaitingThrFd { .. }) => {
                 *handle = old;
                 return Err(Error::new(EINVAL));
             }
-            Handle::AwaitingPath { exec, ctx } => {
+            Handle::AwaitingPath {
+                exec,
+                proc_fd,
+                thr_fd,
+            } => {
                 *handle = Handle::AwaitingArgs {
                     exec,
-                    ctx,
+                    proc_fd,
+                    thr_fd,
                     path: validate_utf8(buf)?.into(),
                 }
             }
-            Handle::AwaitingArgs { exec, ctx, path } => {
+            Handle::AwaitingArgs {
+                exec,
+                proc_fd,
+                thr_fd,
+                path,
+            } => {
                 *handle = Handle::AwaitingEnvs {
                     exec,
-                    ctx,
+                    proc_fd,
+                    thr_fd,
                     path,
                     args: buf.into(),
                 }
             }
             Handle::AwaitingEnvs {
                 exec,
-                ctx,
+                proc_fd,
+                thr_fd,
                 path,
                 args,
             } => {
                 *handle = Handle::AwaitingCwd {
                     exec,
-                    ctx,
+                    proc_fd,
+                    thr_fd,
                     path,
                     args,
                     envs: buf.into(),
@@ -167,14 +206,16 @@ impl SchemeSync for Scheme {
             }
             Handle::AwaitingCwd {
                 exec,
-                ctx,
+                proc_fd,
+                thr_fd,
                 path,
                 args,
                 envs,
             } => {
                 *handle = Handle::AwaitingDefaultScheme {
                     exec,
-                    ctx,
+                    proc_fd,
+                    thr_fd,
                     path,
                     args,
                     envs,
@@ -183,7 +224,8 @@ impl SchemeSync for Scheme {
             }
             Handle::AwaitingDefaultScheme {
                 exec,
-                ctx,
+                proc_fd,
+                thr_fd,
                 path,
                 args,
                 envs,
@@ -191,7 +233,8 @@ impl SchemeSync for Scheme {
             } => {
                 *handle = Handle::Finished {
                     exec,
-                    ctx,
+                    proc_fd,
+                    thr_fd,
                     path,
                     args,
                     envs,
@@ -223,48 +266,58 @@ impl Scheme {
     fn on_sendfd(&mut self, socket: &Socket, req: &SendFdRequest) -> Result<usize> {
         let handle = self.handles.get_mut(&req.id()).ok_or(Error::new(EBADF))?;
         match std::mem::replace(handle, Handle::Placeholder) {
-            Handle::AwaitingContextFd { pid } => {
+            Handle::AwaitingProcFd { pid } => {
+                let fd = FdGuard::new({
+                    let mut fd = usize::MAX;
+                    req.obtain_fd(socket, FobtainFdFlags::empty(), Err(&mut fd))?;
+                    fd
+                });
+                let proc_fd = ProcFd {
+                    fd,
+                    fileno: req.arg() as usize,
+                };
+                println!("PROC_FD {proc_fd:?}");
+
+                // FIXME: Improve the procmgr proc scheme (necessary for security), so that we can
+                // ensure no other contexts can modify the context handle sent here, after this
+                // file descriptor has been verified to now be exclusively owned by escalated.
+
+                let mut meta = ProcMeta::default();
+                if syscall::read(*proc_fd.fd, unsafe { plain::as_mut_bytes(&mut meta) })?
+                    != size_of::<ProcMeta>()
+                {
+                    return Err(Error::new(EBADF));
+                }
+
+                if pid != meta.pid as usize {
+                    return Err(Error::new(EACCES));
+                }
+
+                *handle = Handle::AwaitingThrFd { proc_fd };
+            }
+            Handle::AwaitingThrFd { proc_fd } => {
                 let fd = FdGuard::new({
                     let mut fd = usize::MAX;
                     req.obtain_fd(socket, FobtainFdFlags::empty(), Err(&mut fd))?;
                     fd
                 });
 
-                if !req.flags().contains(SendFdFlags::EXCLUSIVE) {
-                    return Err(Error::new(EBUSY));
+                // FIXME
+                //if !req.flags().contains(SendFdFlags::EXCLUSIVE) {
+                //return Err(Error::new(EBUSY));
+                //}
+
+                // FIXME: use dup2 on the new thread's fdtbl to ensure proc and thr fileno point
+                // exactly to the fds sent to escalated
+                *handle = Handle::AwaitingExecFd {
+                    proc_fd,
+                    thr_fd: ThrFd {
+                        fd,
+                        fileno: req.arg() as usize,
+                    },
                 }
-                // FIXME: Improve the kernel proc: scheme (necessary for security), so that we can
-                // ensure no other contexts can modify the context handle sent here, after this
-                // file descriptor has been verified to now be exclusively owned by escalated.
-
-                // TODO: Find a better way to read the PID than fpath
-                let handle_pid = {
-                    const LEN: usize = 256;
-
-                    let mut path = [0_u8; LEN];
-                    let len = syscall::fpath(*fd, &mut path)?;
-                    if len > path.len() {
-                        println!("escalated: too long fpath len ({len} > {LEN})");
-                        return Err(Error::new(EIO));
-                    }
-                    assert!(path.starts_with(b"proc:"));
-                    let path = &path[5..];
-                    let slash = path
-                        .iter()
-                        .position(|c| *c == b'/')
-                        .expect("malformed kernel proc: fpath");
-                    let pid_str =
-                        core::str::from_utf8(&path[..slash]).expect("non-UTF8 kernel proc: fpath");
-
-                    pid_str.parse().expect("invalid kernel proc: fpath pid")
-                };
-                if pid != handle_pid {
-                    return Err(Error::new(EACCES));
-                }
-
-                *handle = Handle::AwaitingExecFd { ctx: ContextFd(fd) }
             }
-            Handle::AwaitingExecFd { ctx } => {
+            Handle::AwaitingExecFd { proc_fd, thr_fd } => {
                 let fd = FdGuard::new({
                     let mut fd = usize::MAX;
                     req.obtain_fd(socket, FobtainFdFlags::empty(), Err(&mut fd))?;
@@ -273,7 +326,8 @@ impl Scheme {
 
                 *handle = Handle::AwaitingPath {
                     exec: ExecFd(fd),
-                    ctx,
+                    proc_fd,
+                    thr_fd,
                 }
             }
             old => {
@@ -287,7 +341,14 @@ impl Scheme {
 
 fn execute(
     MemoryFd(memory): &MemoryFd,
-    ContextFd(context_file): ContextFd,
+    ProcFd {
+        fd: proc_fd,
+        fileno: proc_fileno,
+    }: ProcFd,
+    ThrFd {
+        fd: thr_fd,
+        fileno: thr_fileno,
+    }: ThrFd,
     ExecFd(exec_file): ExecFd,
     path: &str,
     args: &[u8],
@@ -319,20 +380,10 @@ fn execute(
         return Err(Error::new(EACCES));
     }
 
-    let setuid = setuid
-        .map(|new_uid| -> Result<_> {
-            Ok((new_uid, FdGuard::new(syscall::dup(*context_file, b"uid")?)))
-        })
-        .transpose()?;
-    let setgid = setgid
-        .map(|new_gid| -> Result<_> {
-            Ok((new_gid, FdGuard::new(syscall::dup(*context_file, b"gid")?)))
-        })
-        .transpose()?;
-
     let address_space_fd = redox_rt::proc::fexec_impl(
         exec_file,
-        context_file,
+        &thr_fd,
+        &proc_fd,
         memory,
         path.as_bytes(),
         args.rsplit(|c| *c == b'\0').filter(|a| !a.is_empty()),
@@ -343,6 +394,8 @@ fn execute(
             default_scheme: Some(default_scheme.as_bytes()),
             sigignmask: 0,
             sigprocmask: 0,
+            thr_fd: thr_fileno,
+            proc_fd: proc_fileno,
             umask: redox_rt::sys::get_umask(),
         },
         None,
@@ -353,13 +406,28 @@ fn execute(
     // becoming the setuid/setgid process.
     drop(address_space_fd);
 
-    if let Some((new_uid, context_uid_fd)) = setuid {
-        let _ = syscall::write(*context_uid_fd, new_uid.to_string().as_bytes())
-            .map_err(|_| Error::new(EIO))?;
-    }
-    if let Some((new_gid, context_gid_fd)) = setgid {
-        let _ = syscall::write(*context_gid_fd, new_gid.to_string().as_bytes())
-            .map_err(|_| Error::new(EIO))?;
+    let [ruid, euid, suid] = if let Some(uid) = setuid {
+        [u32::MAX, uid, uid]
+    } else {
+        [u32::MAX; 3] // unchanged
+    };
+    let [rgid, egid, sgid] = if let Some(gid) = setgid {
+        [u32::MAX, gid, gid]
+    } else {
+        [u32::MAX; 3] // unchanged
+    };
+    let mut payload = [0; size_of::<u32>() * 6];
+    plain::slice_from_mut_bytes(&mut payload)
+        .unwrap()
+        .copy_from_slice(&[ruid, euid, suid, rgid, egid, sgid]);
+
+    if let Err(err) = proc_call(
+        *proc_fd,
+        &mut payload,
+        CallFlags::empty(),
+        &[ProcCall::SetResugid as u64],
+    ) {
+        eprintln!("failed to setresugid: {err}");
     }
 
     // TODO: SIGKILL the process if anything here fails after the process's memory has started to
